@@ -51,6 +51,14 @@ void loop() {
     if (cmdBuffer[0] == 'b'){
       changeBaudRate();
     }
+    if (cmdBuffer[0] == 'Q'){
+      asciiMode = true;
+      Serial.println("Ascii mode");
+    }
+    if (cmdBuffer[0] == 'q'){
+      asciiMode = false;
+      Serial.println("Binary mode");
+    }
     
 
   }
