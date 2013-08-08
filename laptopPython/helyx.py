@@ -6,7 +6,6 @@ import os
 numBranches = 6
 ID_START = wx.NewId()
 class SliderControlGroup(wx.Panel):
-
   def __init__(self, parent, title):
     font1 = wx.Font(12, wx.ROMAN, wx.NORMAL, wx.NORMAL)
     wx.Panel.__init__(self, parent=parent, id=wx.NewId())
@@ -70,7 +69,6 @@ class LED(wx.Panel):
     self.colors[0].Bind(wx.EVT_BUTTON, self.chooseColor0)
     self.colors[1].Bind(wx.EVT_BUTTON, self.chooseColor1)
     self.colors[2].Bind(wx.EVT_BUTTON, self.chooseColor2)
-    
     self.transmit = wx.Button(self, wx.ID_CLOSE, "Transmit Colors")
     self.transmit.Bind(wx.EVT_BUTTON, tree.transmitColors)
     self.save = wx.Button(self, wx.ID_CLOSE, "Save Current Colors")
@@ -81,7 +79,6 @@ class LED(wx.Panel):
     commandBox.Add(self.transmit, 0, wx.ALL, 10)
     commandBox.Add(self.save, 0, wx.ALL, 10)
     commandBox.Add(self.runSequence, 0, wx.ALL, 10)
-
     box.Add(grid)
     box.Add(commandBox)
     self.SetSizer(box) 
@@ -128,31 +125,114 @@ class Frame(wx.Frame):
     self.panel.logTxt = wx.TextCtrl(self.panel, style=wx.TE_MULTILINE, pos=(100, 50), size=(600, 150))
     self.panel.allOff = wx.Button(self.panel, ID_START, "All Off")
     self.panel.allOff.Bind(wx.EVT_BUTTON, tree.allOff)
+    self.panel.doConnect = wx.Button(self.panel, ID_START, "Connect")
+    self.panel.doConnect.Bind(wx.EVT_BUTTON, tree.doConnect)
+    self.panel.doDisConnect = wx.Button(self.panel, ID_START, "Disconnect")
+    self.panel.doDisConnect.Bind(wx.EVT_BUTTON, tree.doDisConnect)
     commandBox.Add(self.panel.allOff, 0, wx.ALL, 10)
+    commandBox.Add(self.panel.doConnect, 0, wx.ALL, 10)
+    commandBox.Add(self.panel.doDisConnect, 0, wx.ALL, 10)
     tabGroup = TabGroup(self.panel)
     outerBox.Add(commandBox, 0, wx.ALL|wx.EXPAND, 5) 
     outerBox.Add(tabGroup, 0, wx.ALL|wx.EXPAND, 5) 
     outerBox.Add(self.panel.logTxt, 0, wx.ALL, 5)
     self.panel.SetSizer(outerBox)
     self.panel.Layout()
+  def log(self, txt):
+    self.panel.logTxt.AppendText(txt + "\n")
     
 class Tree():
+  baudRate = 9600
+  sendBuffer = ''
+  asciiMode = True
+  motorBoards = [i for i in range(13, 19)]
+  ledBoards = [i for i in range(1, 13)]
+  valveBoard = 19
   def allOff():
-    pass
+    self.addSingleCommand(0, 'M', 0)
+    self.addMultiCommand(valveBoard, 'V', {0:0, 1:0, 2:0, 3:0, 4:0, 5:0})
+    self.sendCommand()
   def transmitSettings():
-    pass
+    valveSubCommands = {}
+    for i in range(0, numBranches):
+      self.addSingleCommand(motorBoards[i], 'M', gui.panel.fire.motorControls.slider[i].GetValue())
+      valveSubComands[i] = gui.panel.fire.valveControls.slider[i].GetValue()
+    self.addMultiCommand(valveBoard, 'V', {0:0, 1:0, 2:0, 3:0, 4:0, 5:0})
+    self.sendCommand()
   def transmitColors():
-    pass
+    colors = []
+    for i in range(0, 3):
+      for j in range(0, 3):
+        colors.append(gui.panel.led.colorValues[i][j].GetValue())
+    self.addSingleCommand(0, 't', colors)
+    self.addSingleCommand(0, 'r')
+    self.sendCommand()
   def saveColors():
-    pass
+    self.addSingleCommand(0, 'T')
+    self.sendCommand()
   def runPattern():
     pass
   def stopPattern():
     pass
   def runLedPattern(filePath):
     pass
+  def sendBuffer():
+    pass
+  def doConnect(self, event):
+    self.ser = False
+    portRoot = 'COM'
+    portNum = 0;
+    maxPortNum = 8;
+    while (not self.ser) and portNum <= maxPortNum:
+      portName = portRoot + str(portNum)
+      try:
+        self.ser = serial.Serial(portName, 9600, timeout=0.1)
+        gui.connect.Disable()
+        gui.disconnect.Enable()
+        gui.log("Connected to Helyx on " + portName)
+        self.ser.readline()
+      except:
+        gui.log("Error connecting to Helyx on " + portName)
+        portNum += 1
+    if self.ser: 
+      gui.panel.doConnect.Disable()
+      gui.panel.doDisConnect.Enable()
+    else:
+      gui.panel.doConnect.Enable()
+      gui.panel.doDisConnect.Disable()
+  def doDisConnect(self, event):
+    self.ser = False
+    gui.panel.doConnect.Enable()
+    gui.panel.doDisConnect.Disable()
+  def addSingleCommand(boardAddr, command, data = False):
+    if asciiMode:
+      cmd = '!' + toHexStr(boardAddr)
+      if data:
+        if (isinstance( data, ( int, long ) )):
+          cmd = cmd + toHexStr(data)
+        else:
+          for dataByte in data:
+            cmd = cmd + toHexStr(dataByte)
+      cmd = cmd + '!'
+    else :
+      cmdList = [200]
+      cmdList.append(boardAddr)
+      cmdList.append(command)
+      if data:
+        if (isinstance( data, ( int, long ) )):
+          cmdList.append(data)
+        else:
+          for dataByte in data:
+            cmdList.append(dataByte)
+      cmdList.append(200)
+      cmd = ''.join(chr(x) for x in bytes)
+  def toHexStr(byteIn):
+    hexStr = hex(byteIn)
+    retstr = hexStr[2] + hexStr[3]
+    return retStr
 tree = Tree()
 app = wx.App(redirect=True,  filename="logfile.txt")
 gui = Frame("Helyx Control")
+tree.doConnect(1)
 gui.Show()
 app.MainLoop()
