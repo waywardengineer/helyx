@@ -1,8 +1,12 @@
-
 import wx
 import serial
 import colorsys
 import os
+from time import time
+from threading import Timer, Thread, Event
+from math import sin, pi
+from imageProcessor import ImageData
+
 numBranches = 6
 ID_START = wx.NewId()
 class SliderControlGroup(wx.Panel):
@@ -74,6 +78,7 @@ class LED(wx.Panel):
     font1 = wx.Font(12, wx.ROMAN, wx.NORMAL, wx.NORMAL)
     box = wx.BoxSizer(wx.HORIZONTAL)
     grid = wx.GridSizer(4, 5)
+    commandBox = wx.BoxSizer(wx.VERTICAL)
     self.colors = []
     self.colorSamples = []
     self.colorValues = []
@@ -93,16 +98,24 @@ class LED(wx.Panel):
     self.colors[0].Bind(wx.EVT_BUTTON, self.chooseColor0)
     self.colors[1].Bind(wx.EVT_BUTTON, self.chooseColor1)
     self.colors[2].Bind(wx.EVT_BUTTON, self.chooseColor2)
+    
     self.transmit = wx.Button(self, wx.ID_CLOSE, "Transmit Colors")
     self.transmit.Bind(wx.EVT_BUTTON, tree.transmitColors)
+    commandBox.Add(self.transmit, 0, wx.ALL, 10)
+    
     self.save = wx.Button(self, wx.ID_CLOSE, "Save Current Colors")
     self.save.Bind(wx.EVT_BUTTON, tree.saveColors)
+    commandBox.Add(self.save, 0, wx.ALL, 10)
+    
     self.runSequence = wx.Button(self, wx.ID_CLOSE, "Open Sequence File")
     self.runSequence.Bind(wx.EVT_BUTTON, self.openFile)
-    commandBox = wx.BoxSizer(wx.VERTICAL)
-    commandBox.Add(self.transmit, 0, wx.ALL, 10)
-    commandBox.Add(self.save, 0, wx.ALL, 10)
     commandBox.Add(self.runSequence, 0, wx.ALL, 10)
+
+    self.stopSequence = wx.Button(self, wx.ID_CLOSE, "Stop Sequence")
+    self.stopSequence.Bind(wx.EVT_BUTTON, tree.stopLedPattern)
+    commandBox.Add(self.stopSequence, 0, wx.ALL, 10)
+    
+    
     box.Add(grid)
     box.Add(commandBox)
     self.SetSizer(box) 
@@ -128,7 +141,7 @@ class LED(wx.Panel):
     if dlg.ShowModal() == wx.ID_OK:
       path = dlg.GetPath()
       mypath = os.path.basename(path)
-      tree.runLedSequence(mypath)
+      tree.runLedPattern(mypath)
     dlg.Destroy()
 class TabGroup(wx.Notebook):
   def __init__(self, parent):
@@ -143,13 +156,13 @@ class TabGroup(wx.Notebook):
 class Frame(wx.Frame):
   def __init__(self, title):
 
-    wx.Frame.__init__(self, None, title=title, size=(1050, 720))
+    wx.Frame.__init__(self, None, title=title, size=(1150, 720))
     self.panel = wx.Panel(self)
     outerBox = wx.BoxSizer(wx.VERTICAL)
     commandBox = wx.BoxSizer(wx.HORIZONTAL)
 
-    self.panel.logTxt = wx.TextCtrl(self.panel, style=wx.TE_MULTILINE, pos=(100, 50), size=(600, 150))
-    self.panel.allOff = wx.Button(self.panel, ID_START, "STOP!!! It's on (bad) fire!!!")
+    self.panel.logTxt = wx.TextCtrl(self.panel, style=wx.TE_MULTILINE, pos=(100, 50), size=(1100, 150))
+    self.panel.allOff = wx.Button(self.panel, ID_START, "STOP!!!")
     self.panel.allOff.Bind(wx.EVT_BUTTON, tree.allOff)
     commandBox.Add(self.panel.allOff, 0, wx.ALL, 10)
     tabGroup = TabGroup(self.panel)
@@ -165,11 +178,20 @@ class Tree():
   def __init__(self):
     self.baudRate = 9600
     self.cmdBuffer = ''
-    self.asciiMode = False
+    self.asciiMode = True
     self.motorBoards = [i for i in range(13, 19)]
     self.ledBoards = [i for i in range(1, 13)]
     self.valveBoard = 19
+    self.firePatternTimer = Timer(1.0, self.updateFirePattern)
   def allOff(self, event):
+    try:
+      self.fireTimerStopped.set()
+    except:
+      pass
+    try:
+      self.ledTimerStopped.set()
+    except:
+      pass
     self.addSingleCommand(0, 'M', 0)
     self.addMultiCommand(self.valveBoard, 'V', {0:0, 1:0, 2:0, 3:0, 4:0, 5:0})
     self.sendCommand()
@@ -196,12 +218,76 @@ class Tree():
     self.addSingleCommand(0, 'T')
     self.sendCommand()
   def runPattern(self, event):
-    
-    pass
+    try:
+      self.fireTimerStopped.set()
+    except:
+      pass
+
+    self.patternVars = { 'motor' : [], 'valve' : []}
+    for i in range(0, numBranches):
+      strsIn = {'motor' : gui.panel.fire.motorControls.patterns[i].GetValue(), 'valve' : gui.panel.fire.valveControls.patterns[i].GetValue()}
+      for k in strsIn.keys():
+        vars = strsIn[k].split(',')
+        try:
+          if len(vars) == 1:
+            row = { 'min' : 0, 'max' : 100, 'length' : int(vars[0]), 'startTime' : int(time())}
+          else:
+            row = { 'min' : int(vars[0]), 'max' : int(vars[1]), 'length' : int(vars[2]), 'startTime' : int(time())}
+        except:
+          row = { 'startTime' : False}
+        self.patternVars[k].append(row)
+    self.fireTimerStopped = Event()
+    thread = FirePatternTimerThread(self.fireTimerStopped)
+    thread.start()
+
+  def updateFirePattern(self):
+    now = time()
+    currentValues = {}
+    for i in range(0, numBranches):
+      for k in ['motor', 'valve']:
+        currentPattern = self.patternVars[k][i]
+        if (currentPattern['startTime']):
+          if now > (currentPattern['startTime'] + currentPattern['length']):
+            currentPattern['startTime'] = now
+            self.patternVars[k][i]['startTime'] = now
+          setting = (sin(2*pi*((now-currentPattern['startTime'])/currentPattern['length']))/2 + 0.5) * (currentPattern['max'] - currentPattern['min']) + currentPattern['min']
+          currentValues[k] = int(setting)
+        else:
+          currentValues[k] = 0
+      gui.panel.fire.motorControls.sliders[i].SetValue(currentValues['motor'])
+      gui.panel.fire.valveControls.sliders[i].SetValue(currentValues['valve'])
+    self.transmitSettings(1)
+  def updateLedPattern(self):
+    patternFrame = self.ledPattern.getrow(self.ledPatternIndex)
+    self.ledPatternIndex += 1
+    if self.ledPatternIndex >= self.ledPatternLength:
+      self.ledPatternIndex = 0
+    pixelIndex = 0
+    for i in range(0, numBranches):
+      cmds = {}
+      for j in range (0, 6):
+        cmds[j] = patternFrame[pixelIndex]
+        pixelIndex += 1
+      self.addMultiCommand(self.ledBoards[i], 'h', cmds)
+      cmds = {}
+      for j in range (0, 5):
+        cmds[j] = patternFrame[pixelIndex]
+        pixelIndex += 1
+      self.addMultiCommand(self.ledBoards[i + numBranches], 'h', cmds)
+      self.sendCommand()
   def stopPattern(self, event):
-    pass
+    self.fireTimerStopped.set()
+  def stopLedPattern(self, event):
+    self.ledTimerStopped.set()
   def runLedPattern(self, filePath):
-    pass
+    self.ledPattern = ImageData(filePath, 66)
+    if self.ledPattern:
+      self.ledPatternLength = len(self.ledPattern.rows)
+      self.ledPatternIndex = 0
+      self.ledTimerStopped = Event()
+      thread = LedPatternTimerThread(self.ledTimerStopped)
+      thread.start()
+      
   def doConnect(self, event):
     self.ser = False
     portRoot = 'COM'
@@ -211,7 +297,7 @@ class Tree():
     while (not self.ser) and portNum <= maxPortNum:
       portName = portRoot + str(portNum)
       try:
-        self.ser = serial.Serial(portName, 9600, timeout=0.1)
+        self.ser = serial.Serial(portName, self.baudRate, timeout=0.1)
         gui.connect.Disable()
         gui.disconnect.Enable()
         gui.log("Connected to Helyx on " + portName)
@@ -307,7 +393,21 @@ class Tree():
     self.asciiMode = False
     gui.panel.connection.doAscii.Enable()
     gui.panel.connection.doBinary.Disable()
- 
+class FirePatternTimerThread(Thread):
+  def __init__(self, event):
+    Thread.__init__(self)
+    self.stopped = event
+  def run(self):
+    while not self.stopped.wait(1):
+      tree.updateFirePattern()
+class LedPatternTimerThread(Thread):
+  def __init__(self, event):
+    Thread.__init__(self)
+    self.stopped = event
+  def run(self):
+    while not self.stopped.wait(1):
+      tree.updateLedPattern()
+
 tree = Tree()
 app = wx.App(redirect=True,  filename="logfile.txt")
 gui = Frame("Helyx Control")
