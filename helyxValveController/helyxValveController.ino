@@ -144,6 +144,9 @@ int checkSerial()
       
     }
   }
+  while(Serial.available()){
+    Serial.read();
+  }
   return gettingCommand ? 0 : cmdIndex;  // return number of chars read of command that applies to us
 }
 

@@ -15,6 +15,7 @@ extern "C" {
 const uint8_t iAddrPins[BOARD_ADDR_BITS] = {3, 4, 5, 6, 7};
 const uint8_t oKillPowerOut = 9;
 const uint8_t oLed = 10;
+const uint8_t oDirectionControl = 2;
 uint8_t ledAddresses[HIGHESTADDRESS];
 uint8_t ledColorIndexes[HIGHESTADDRESS];
 int ledAddressCount = 0;
@@ -38,16 +39,19 @@ uint8_t buffer[3];
 
 void setup()
 {
+  delay(200);
   Wire.begin();
   delay(100); // wait a bit for things to stabilize
-    BlinkM_off(0);  // turn everyone off
-
-  Serial.begin(9600);
+  BlinkM_off(0);  // turn everyone off
+  //pinMode(oLed, OUTPUT);
+  pinMode(oDirectionControl, OUTPUT);
+  digitalWrite(oDirectionControl, LOW);
+  Serial.begin(19200);
   for (i=0; i < BOARD_ADDR_BITS; i++){
     pinMode(iAddrPins[i], INPUT);
     digitalWrite(iAddrPins[i], HIGH);
   }
-  boardAddress = 1;//getMyAddress();
+  boardAddress = getMyAddress();
   populateLedAddresses();
   loadDefaultColors();
   for (i=0; i < ledAddressCount; i++){
@@ -58,9 +62,9 @@ void setup()
 void loop() {
   cmdLength = checkSerial();
   if (cmdLength > 0){
+
     if (cmdBuffer[0] == 'c' || cmdBuffer[0] == 'h' || cmdBuffer[0] == 'C' || cmdBuffer[0] == 'H'){
      mode = 0;
-      Serial.println("LEDcommand");
       sendLedColorCmd(cmdLength);
     }
     if (cmdBuffer[0] == 'b'){
@@ -71,14 +75,18 @@ void loop() {
     }
     if (cmdBuffer[0] == 'Q'){
       asciiMode = true;
-      Serial.println("Ascii mode");
     }
     if (cmdBuffer[0] == 'q'){
       asciiMode = false;
-      Serial.println("Binary mode");
     }
     if (cmdBuffer[0] == 'T'){
       saveDefaultColors();
+    }
+    if (cmdBuffer[0] == 'X'){
+      
+      BlinkM_off(0);
+      populateLedAddresses();
+      //Serial.println("off");
     }
     if (cmdBuffer[0] == 't'){
       uint8_t index = 1;
@@ -124,22 +132,23 @@ uint8_t randomize (uint8_t num, uint8_t range){
 }
   
 void changeBaudRate(){
-  char baudRateStr[cmdLength - 1];
-  i = 0;
-  while (i < cmdLength){
-    baudRateStr[i] = cmdBuffer[++i];
-    Serial.println(cmdBuffer[i]);
+  long baudRates[7] = {9600, 14400, 19200, 28800, 38400, 57600, 115200};
+  while (Serial.available()){
+    Serial.read();
   }
-  long baudRate = atol(baudRateStr);
-  Serial.println("changeBaudRate");
-  Serial.println(baudRateStr);
-  Serial.println(baudRate);
-  
+  digitalWrite(oDirectionControl, HIGH);
+  delay(20);
+  Serial.println("Change Baudrate");
+  Serial.println(baudRates[cmdBuffer[1]], DEC);
+  delay(20);
   Serial.end();
-  delay(50);
-  Serial.begin(baudRate);
-}
+  digitalWrite(oDirectionControl, LOW);
 
+  delay(100);
+    Serial.begin(baudRates[cmdBuffer[1]]);
+  delay(100);
+}
+
 
 
 void sendLedColorCmd(int cmdLength){
@@ -149,11 +158,11 @@ void sendLedColorCmd(int cmdLength){
   int nextStartIndex = 0;
   while (startIndex < cmdLength){
     nextStartIndex = startIndex + subCmdLength;
-    Serial.println(cmdBuffer[startIndex]);
+    //Serial.println(cmdBuffer[startIndex]);
     if (cmdBuffer[startIndex] == 210){
-        Serial.println("beginning");
+        //Serial.println("beginning");
       if (nextStartIndex >= (cmdLength-1)  || cmdBuffer[nextStartIndex] == 210){// subcommand is right length;
-        Serial.println("sendingCmd");
+        //Serial.println("sendingCmd");
         Wire.beginTransmission(cmdBuffer[++startIndex]);
         Wire.write(cmdBuffer[0]);
         Wire.write(cmdBuffer[++startIndex]);
@@ -178,6 +187,7 @@ int checkSerial()
     return 0;
   }
   delay(10);  // wait a little for serial data
+  //digitalWrite(oLed, HIGH);
   if (!gettingCommand){
     memset( cmdBuffer, 0, sizeof(cmdBuffer) ); // set it all to zero
     cmdIndex = 0;
@@ -226,10 +236,11 @@ int checkSerial()
     }
     else {
       cmdBuffer[cmdIndex ++] = buffer[bufferIndex];
-      Serial.println(cmdBuffer[cmdIndex]);
+      //Serial.println(cmdBuffer[cmdIndex]);
       
     }
   }
+  //digitalWrite(oLed, LOW);
   return gettingCommand ? 0 : cmdIndex;  // return number of chars read of command that applies to us
 }
 
@@ -240,8 +251,8 @@ uint8_t getMyAddress(){
   uint8_t myAddress = 0;
   uint8_t thisBit = 0;
   for (i=0; i < BOARD_ADDR_BITS; i++){
-    thisBit = digitalRead(iAddrPins[i]) ? 1 : 0;
-    myAddress = myAddress || (thisBit << i);
+    thisBit = digitalRead(iAddrPins[i]) ? 0 : 1;
+    myAddress = myAddress | (thisBit << i);
   }
   return myAddress;
 }

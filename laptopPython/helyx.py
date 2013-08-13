@@ -2,7 +2,7 @@ import wx
 import serial
 import colorsys
 import os
-from time import time
+from time import time, sleep
 from threading import Timer, Thread, Event
 from math import sin, pi
 from imageProcessor import ImageData
@@ -268,12 +268,14 @@ class Tree():
       for j in range (0, 6):
         cmds[j] = patternFrame[pixelIndex]
         pixelIndex += 1
-      self.addMultiCommand(self.ledBoards[i], 'h', cmds)
+      self.addMultiCommand(self.ledBoards[i], 'c', cmds)
+      self.sendCommand()
+      sleep(1);
       cmds = {}
       for j in range (0, 5):
         cmds[j] = patternFrame[pixelIndex]
         pixelIndex += 1
-      self.addMultiCommand(self.ledBoards[i + numBranches], 'h', cmds)
+      self.addMultiCommand(self.ledBoards[i + numBranches], 'c', cmds)
       self.sendCommand()
   def stopPattern(self, event):
     self.fireTimerStopped.set()
@@ -290,6 +292,8 @@ class Tree():
       
   def doConnect(self, event):
     self.ser = False
+    baudRates = [9600, 14400, 19200, 28800, 38400, 57600, 115200]
+    
     portRoot = 'COM'
     portNum = 2
     maxPortNum = 13
@@ -297,13 +301,14 @@ class Tree():
     while (not self.ser) and portNum <= maxPortNum:
       portName = portRoot + str(portNum)
       try:
-        self.ser = serial.Serial(portName, self.baudRate, timeout=0.1)
+        self.ser = serial.Serial(portName, baudRates[2], timeout=0.1)
         gui.log("Connected to Helyx on " + portName)
+
         self.ser.readline()
       except:
         gui.log("Error connecting to Helyx on " + portName)
         portNum += 1
-    if self.ser: 
+    if self.ser:
       gui.panel.connection.doConnect.Disable()
       gui.panel.connection.doDisConnect.Enable()
     else:
@@ -404,7 +409,7 @@ class LedPatternTimerThread(Thread):
     Thread.__init__(self)
     self.stopped = event
   def run(self):
-    while not self.stopped.wait(1):
+    while not self.stopped.wait(4):
       tree.updateLedPattern()
 
 tree = Tree()
