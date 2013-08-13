@@ -291,15 +291,13 @@ class Tree():
   def doConnect(self, event):
     self.ser = False
     portRoot = 'COM'
-    portNum = 0
-    maxPortNum = 8
+    portNum = 2
+    maxPortNum = 13
     self.cmdBuffer = ''
     while (not self.ser) and portNum <= maxPortNum:
       portName = portRoot + str(portNum)
       try:
         self.ser = serial.Serial(portName, self.baudRate, timeout=0.1)
-        gui.connect.Disable()
-        gui.disconnect.Enable()
         gui.log("Connected to Helyx on " + portName)
         self.ser.readline()
       except:
@@ -379,7 +377,8 @@ class Tree():
       for i in range(0, len(self.cmdBuffer)):
         outStr += str(ord(self.cmdBuffer[i])) + ' '
       gui.log(outStr)
-        
+    self.ser.write(self.cmdBuffer)    
+
     self.cmdBuffer = ''
   def doAscii(self, event):
     self.addSingleCommand(0, 'Q')
