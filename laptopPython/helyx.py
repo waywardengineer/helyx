@@ -193,6 +193,7 @@ class Tree():
     except:
       pass
     self.addSingleCommand(0, 'M', 0)
+    self.sendCommand()
     self.addMultiCommand(self.valveBoard, 'V', {0:0, 1:0, 2:0, 3:0, 4:0, 5:0})
     self.sendCommand()
   def transmitSettings(self, event):
@@ -301,7 +302,7 @@ class Tree():
     while (not self.ser) and portNum <= maxPortNum:
       portName = portRoot + str(portNum)
       try:
-        self.ser = serial.Serial(portName, baudRates[2], timeout=0.1)
+        self.ser = serial.Serial(portName, baudRates[0], timeout=0.1)
         gui.log("Connected to Helyx on " + portName)
 
         self.ser.readline()
