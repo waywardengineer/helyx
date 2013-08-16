@@ -1,11 +1,5 @@
-#include "Wire.h"
-#include "BlinkM_funcs.h"
 #include <ctype.h>
-#include <EEPROM.h>
-
-extern "C" { 
-#include "utility/twi.h"  // from Wire library, so we can do bus scanning
-}
+#include <SPI.h>
 
 
 // !bbc.llrrggbb.l2rrggbb!b2c.llrrggbb
@@ -15,10 +9,8 @@ extern "C" {
 const uint8_t iAddrPins[BOARD_ADDR_BITS] = {3, 4, 5, 6, 7};
 const uint8_t oKillPowerOut = 9;
 const uint8_t oLed = 10;
+const uint8_t oSlaveSelectPin = 14;
 const uint8_t oDirectionControl = 2;
-uint8_t ledAddresses[HIGHESTADDRESS];
-uint8_t ledColorIndexes[HIGHESTADDRESS];
-int ledAddressCount = 0;
 int i;
 int j;
 uint8_t boardAddress;
@@ -27,108 +19,46 @@ uint8_t asciiMode = true;
 int cmdLength;
 uint8_t gettingCommand = false; // true if we are in the process of recieving a command for us
 int cmdIndex = 0;
-uint8_t c1;
-uint8_t c2;
-uint8_t c3;
-uint8_t mode = 1;
 unsigned long eventTimer = 0;
-uint8_t defaultColors[3][3];
-uint8_t rnd;
 uint8_t bufferIndex = 0; // true if we are in the process of recieving a command for us
 uint8_t buffer[3];
 
 void setup()
 {
-  delay(200);
-  Wire.begin();
-  delay(100); // wait a bit for things to stabilize
-  BlinkM_off(0);  // turn everyone off
-  //pinMode(oLed, OUTPUT);
-  pinMode(oDirectionControl, OUTPUT);
-  digitalWrite(oDirectionControl, LOW);
   Serial.begin(9600);
+  SPI.begin(); 
+  pinMode(oDirectionControl, OUTPUT);
+  pinMode(oSlaveSelectPin, OUTPUT);
+  digitalWrite(oDirectionControl, LOW);
   for (i=0; i < BOARD_ADDR_BITS; i++){
     pinMode(iAddrPins[i], INPUT);
     digitalWrite(iAddrPins[i], HIGH);
   }
   boardAddress = getMyAddress();
-  populateLedAddresses();
-  loadDefaultColors();
-  for (i=0; i < ledAddressCount; i++){
-    ledColorIndexes[i] = random(3);
-  }
+  Serial.println(boardAddress, HEX);
     
 }
 void loop() {
   cmdLength = checkSerial();
   if (cmdLength > 0){
-
-    if (cmdBuffer[0] == 'c' || cmdBuffer[0] == 'h' || cmdBuffer[0] == 'C' || cmdBuffer[0] == 'H'){
-     mode = 0;
-      sendLedColorCmd(cmdLength);
+    if (cmdBuffer[0] == 'M'){
+       digitalPotWrite();
     }
     if (cmdBuffer[0] == 'b'){
       changeBaudRate();
     }
-    if (cmdBuffer[0] == 'r'){
-      mode = 1;
-    }
     if (cmdBuffer[0] == 'Q'){
       asciiMode = true;
+      //Serial.println("Ascii mode");
     }
     if (cmdBuffer[0] == 'q'){
       asciiMode = false;
-    }
-    if (cmdBuffer[0] == 'T'){
-      saveDefaultColors();
-    }
-    if (cmdBuffer[0] == 'X'){
-      
-      BlinkM_off(0);
-      populateLedAddresses();
-      //Serial.println("off");
-    }
-    if (cmdBuffer[0] == 't'){
-      uint8_t index = 1;
-      for (i=0; i < 3; i++){
-        for (j=0; j < 3; j++){
-          defaultColors[i][j] = cmdBuffer[index++];
-
-        }
-      }
+     // Serial.println("Binary mode");
     }
     
-  }
-  switch(mode){  
-    case 1:
-      if (eventTimer < millis()){
-        for (i = 0; i < ledAddressCount; i++){
-          
-          if (random(100) < 6){
-            ledColorIndexes[i] = random(3);
-          }
-          c1 = randomize(defaultColors[ledColorIndexes[i]][0], 0);
-          c2 = randomize(defaultColors[ledColorIndexes[i]][1], 20);
-          c3 = randomize(defaultColors[ledColorIndexes[i]][2], 60);
-          BlinkM_fadeToHSB(ledAddresses[i], c1, c2, c3);
-        }
-        eventTimer = millis() + 150;
-     }
-      break;
-    }
 
-}
-uint8_t randomize (uint8_t num, uint8_t range){
-  uint8_t change = random(range);
-  if (change % 2){
-    num = (num  >  change)?(num - change) : 0;
-  }
-  else{
-    num = ((255 - num)  >  change)?(num + change) : 255;
   }
 
-
-  return num;
 }
   
 void changeBaudRate(){
@@ -152,35 +82,6 @@ void changeBaudRate(){
 
 
 
-
-void sendLedColorCmd(int cmdLength){
-  uint8_t subCmdIndex = 0;
-  int subCmdLength = 5;
-  int startIndex = 1;
-  int nextStartIndex = 0;
-  while (startIndex < cmdLength){
-    nextStartIndex = startIndex + subCmdLength;
-    //Serial.println(cmdBuffer[startIndex]);
-    if (cmdBuffer[startIndex] == 210){
-        //Serial.println("beginning");
-      if (nextStartIndex >= (cmdLength-1)  || cmdBuffer[nextStartIndex] == 210){// subcommand is right length;
-        //Serial.println("sendingCmd");
-        Wire.beginTransmission(cmdBuffer[++startIndex]);
-        Wire.write(cmdBuffer[0]);
-        Wire.write(cmdBuffer[++startIndex]);
-        Wire.write(cmdBuffer[++startIndex]);
-        Wire.write(cmdBuffer[++startIndex]);
-        Wire.endTransmission();
-      }
-      else {
-        startIndex ++;
-      }
-    }
-    else {
-      startIndex ++;
-    }
-  }
-}
 
 
 int checkSerial()
@@ -261,6 +162,12 @@ uint8_t getMyAddress(){
   return myAddress;
 }
 
+void digitalPotWrite() {
+  digitalWrite(oSlaveSelectPin, LOW);
+  SPI.transfer(0b00010001);
+  SPI.transfer(cmdBuffer[1]);
+  digitalWrite(oSlaveSelectPin, HIGH);
+}
 
 uint8_t toHex(char hi, char lo)
 {
@@ -281,30 +188,4 @@ uint8_t toHex(char hi, char lo)
   return 0;
 }
 
-void loadDefaultColors(){
-  uint8_t addr = 0;
-  for (i=0; i<3; i++){
-    for (uint8_t j = 0; j < 3; j++){
-      defaultColors [i][j] = EEPROM.read (addr++);
-    }
-  }
-}
-void saveDefaultColors(){
-  uint8_t addr = 0;
-  for (i=0; i<3; i++){
-    for (uint8_t j = 0; j < 3; j++){
-      EEPROM.write (addr++, defaultColors [i][j]);
-    }
-  }
-}
  
-void populateLedAddresses() {
-  byte rc;
-  byte data = 0; // not used, just an address to feed to twi_writeTo()
-  for( byte addr=1; addr < HIGHESTADDRESS; addr++ ) {
-    rc = twi_writeTo(addr, &data, 0, 1, 0);
-    if( rc == 0 ) {
-      ledAddresses[ledAddressCount++] = addr;
-    }
-  }
-}

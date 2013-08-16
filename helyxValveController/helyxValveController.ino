@@ -12,6 +12,8 @@
 const uint8_t iAddrPins[BOARD_ADDR_BITS] = {3, 4, 5, 6, 7};
 const uint8_t oKillPowerOut = 9;
 const uint8_t oLed = 10;
+const uint8_t oDirectionControl = 2;
+const uint8_t valveAddresses[6] = {0, 2, 4, 6, 8, 10};
 int i;
 int j;
 uint8_t boardAddress;
@@ -31,33 +33,32 @@ void setup()
   Serial.begin(9600);
   pwm.begin();
   pwm.setPWMFreq(1200); 
-
+  pinMode(oDirectionControl, OUTPUT);
+  digitalWrite(oDirectionControl, LOW);
   for (i=0; i < BOARD_ADDR_BITS; i++){
     pinMode(iAddrPins[i], INPUT);
     digitalWrite(iAddrPins[i], HIGH);
   }
-  boardAddress = 1;//getMyAddress();
+  boardAddress = getMyAddress();
+  Serial.println(boardAddress, HEX);
     
 }
 void loop() {
   cmdLength = checkSerial();
   if (cmdLength > 0){
     if (cmdBuffer[0] == 'V'){
-       Serial.println("PWM set");
-       Serial.println(cmdBuffer[1], HEX);
-       Serial.println(cmdBuffer[2], HEX);
-       pwm.setPWM(cmdBuffer[1], 0, (cmdBuffer[2]*16) );
+       sendValveCmd(cmdLength);
     }
     if (cmdBuffer[0] == 'b'){
       changeBaudRate();
     }
     if (cmdBuffer[0] == 'Q'){
       asciiMode = true;
-      Serial.println("Ascii mode");
+      //Serial.println("Ascii mode");
     }
     if (cmdBuffer[0] == 'q'){
       asciiMode = false;
-      Serial.println("Binary mode");
+     // Serial.println("Binary mode");
     }
     
 
@@ -70,12 +71,12 @@ void changeBaudRate(){
   i = 0;
   while (i < cmdLength){
     baudRateStr[i] = cmdBuffer[++i];
-    Serial.println(cmdBuffer[i]);
+    //Serial.println(cmdBuffer[i]);
   }
   long baudRate = atol(baudRateStr);
-  Serial.println("changeBaudRate");
-  Serial.println(baudRateStr);
-  Serial.println(baudRate);
+  //Serial.println("changeBaudRate");
+  //Serial.println(baudRateStr);
+  //Serial.println(baudRate);
   
   Serial.end();
   delay(50);
@@ -102,11 +103,12 @@ int checkSerial()
   uint8_t boardAddrBytes = asciiMode? 2:1;
   
   while(Serial.available() && !gettingCommand) {//process through the serial buffer and see if there's anything for us
-    buffer[bufferIndex] = Serial.read();
+    byte thisChar = Serial.read();
+    buffer[bufferIndex] = thisChar;
     if (bufferIndex) {
       bufferIndex ++;
     }
-    else if (buffer[bufferIndex] == boardAddrStartByte) { //start of new command;
+    if (thisChar == boardAddrStartByte) { //start of new command;
       bufferIndex = 1;
     }
     if (bufferIndex > boardAddrBytes){
@@ -140,7 +142,7 @@ int checkSerial()
     }
     else {
       cmdBuffer[cmdIndex ++] = buffer[bufferIndex];
-      Serial.println(cmdBuffer[cmdIndex]);
+      //Serial.println(cmdBuffer[cmdIndex]);
       
     }
   }
@@ -157,13 +159,38 @@ uint8_t getMyAddress(){
   uint8_t myAddress = 0;
   uint8_t thisBit = 0;
   for (i=0; i < BOARD_ADDR_BITS; i++){
-    thisBit = digitalRead(iAddrPins[i]) ? 1 : 0;
-    myAddress = myAddress || (thisBit << i);
+    thisBit = digitalRead(iAddrPins[i]) ? 0 : 1;
+    myAddress = myAddress | (thisBit << i);
   }
   return myAddress;
 }
 
-
+void sendValveCmd(int cmdLength){
+  uint8_t subCmdIndex = 0;
+  int subCmdLength = 3;
+  int startIndex = 1;
+  int nextStartIndex = 0;
+  while (startIndex < cmdLength){
+    nextStartIndex = startIndex + subCmdLength;
+    //Serial.println(cmdBuffer[startIndex]);
+    if (cmdBuffer[startIndex] == 210){
+        //Serial.println("beginning");
+      if (nextStartIndex >= (cmdLength-1)  || cmdBuffer[nextStartIndex] == 210){// subcommand is right length;
+        //Serial.println("sendingCmd");
+        byte a = valveAddresses[cmdBuffer[++startIndex]];
+        byte v = cmdBuffer[++startIndex];
+        pwm.setPWM(a, 0, (v*16) );
+        delay(10);
+      }
+      else {
+        startIndex ++;
+      }
+    }
+    else {
+      startIndex ++;
+    }
+  }
+}
 uint8_t toHex(char hi, char lo)
 {
   uint8_t b;
