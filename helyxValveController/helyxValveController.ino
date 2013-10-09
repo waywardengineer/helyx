@@ -34,19 +34,24 @@ void setup()
 	pwm.begin();
 	pwm.setPWMFreq(1200); 
 	pinMode(oDirectionControl, OUTPUT);
+	pinMode(oLed, OUTPUT);
 	digitalWrite(oDirectionControl, LOW);
 	for (i=0; i < BOARD_ADDR_BITS; i++){
 		pinMode(iAddrPins[i], INPUT);
 		digitalWrite(iAddrPins[i], HIGH);
 	}
 	boardAddress = getMyAddress();
-	Serial.println(boardAddress, HEX);
+	//Serial.println(boardAddress, HEX);
 		
 }
 void loop() {
 	cmdLength = checkSerial();
+				digitalWrite(oLed, HIGH);
+
 	if (cmdLength > 0){
 		if (cmdBuffer[0] == 'V'){
+			//Serial.println("valve");
+			digitalWrite(oLed, LOW);
 			 sendValveCmd(cmdLength);
 		}
 		if (cmdBuffer[0] == 'b'){
@@ -166,6 +171,7 @@ uint8_t getMyAddress(){
 }
 
 void sendValveCmd(int cmdLength){
+
 	uint8_t subCmdIndex = 0;
 	uint8_t valveIndex = 0;
 	const uint16_t offsetFactor = 600;
@@ -178,13 +184,16 @@ void sendValveCmd(int cmdLength){
 		nextStartIndex = startIndex + subCmdLength;
 		//Serial.println(cmdBuffer[startIndex]);
 		if (cmdBuffer[startIndex] == 210){
-				//Serial.println("beginning");
+		Serial.println("beginning");
 			if (nextStartIndex >= (cmdLength-1)  || cmdBuffer[nextStartIndex] == 210){// subcommand is right length;
-				//Serial.println("sendingCmd");
+				Serial.println("sendingCmd");
 				valveIndex = cmdBuffer[++startIndex];
 				onTime = offsetFactor * valveIndex;
 				offTime = cmdBuffer[++startIndex]*16 + onTime;
 				offTime = offTime > 4095? offTime - 4096 : offTime;
+				//Serial.println(onTime);
+				//Serial.println(offTime);
+				
 				pwm.setPWM(valveAddresses[valveIndex], onTime, offTime );
 				delay(10);
 			}
