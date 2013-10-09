@@ -32,20 +32,33 @@ class Fire(wx.Panel):
   def __init__(self, parent):
     wx.Panel.__init__(self, parent, id=wx.NewId())
     box = wx.BoxSizer(wx.HORIZONTAL)
+    commandBox = wx.BoxSizer(wx.VERTICAL)
     self.motorControls = SliderControlGroup(self,'Motor Speed')
     self.valveControls = SliderControlGroup(self, 'Propane Flow')
     box.Add(self.motorControls)
     box.Add(self.valveControls)
+    
+    
+    self.stagedStart = wx.Button(self, wx.ID_CLOSE, "Staged start")
+    self.stagedStart.Bind(wx.EVT_BUTTON, tree.doStagedStart)
+    commandBox.Add(self.stagedStart, 0, wx.ALL, 10)
+
+
     self.transmit = wx.Button(self, wx.ID_CLOSE, "Transmit Settings")
     self.transmit.Bind(wx.EVT_BUTTON, tree.transmitSettings)
+    commandBox.Add(self.transmit, 0, wx.ALL, 10)
+    
+    
     self.runPattern = wx.Button(self, wx.ID_CLOSE, "Run Pattern")
     self.runPattern.Bind(wx.EVT_BUTTON, tree.runPattern)
+    commandBox.Add(self.runPattern, 0, wx.ALL, 10)
+    
+    
     self.stopPattern = wx.Button(self, wx.ID_CLOSE, "Stop Pattern")
     self.stopPattern.Bind(wx.EVT_BUTTON, tree.stopPattern)
-    commandBox = wx.BoxSizer(wx.VERTICAL)
-    commandBox.Add(self.transmit, 0, wx.ALL, 10)
-    commandBox.Add(self.runPattern, 0, wx.ALL, 10)
     commandBox.Add(self.stopPattern, 0, wx.ALL, 10)
+    
+    
     box.Add(commandBox)
     self.SetSizer(box) 
 class Connection(wx.Panel):
@@ -231,7 +244,7 @@ class Tree():
         vars = strsIn[k].split(',')
         try:
           if len(vars) == 1:
-            row = { 'min' : 0, 'max' : 100, 'length' : int(vars[0]), 'startTime' : int(time())}
+            row = { 'min' : 50, 'max' : 100, 'length' : int(vars[0]), 'startTime' : int(time())}
           else:
             row = { 'min' : int(vars[0]), 'max' : int(vars[1]), 'length' : int(vars[2]), 'startTime' : int(time())}
         except:
@@ -254,9 +267,11 @@ class Tree():
           setting = (sin(2*pi*((now-currentPattern['startTime'])/currentPattern['length']))/2 + 0.5) * (currentPattern['max'] - currentPattern['min']) + currentPattern['min']
           currentValues[k] = int(setting)
         else:
-          currentValues[k] = 0
-      gui.panel.fire.motorControls.sliders[i].SetValue(currentValues['motor'])
-      gui.panel.fire.valveControls.sliders[i].SetValue(currentValues['valve'])
+          currentValues[k] = -1
+      if currentValues['motor'] > 0:
+        gui.panel.fire.motorControls.sliders[i].SetValue(currentValues['motor'])
+      if currentValues['valve'] > 0:
+        gui.panel.fire.valveControls.sliders[i].SetValue(currentValues['valve'])
     self.transmitSettings(1)
   def updateLedPattern(self):
     patternFrame = self.ledPattern.getrow(self.ledPatternIndex)
@@ -290,7 +305,19 @@ class Tree():
       self.ledTimerStopped = Event()
       thread = LedPatternTimerThread(self.ledTimerStopped)
       thread.start()
-      
+
+  def doStagedStart(self, event):
+    self.valveStartIndex = 0
+    self.startTimerStopped = Event()
+    thread = StagedStartTimerThread(self.startTimerStopped)
+    thread.start()
+  def nextStartStage(self):
+    if self.valveStartIndex < 6:
+      gui.panel.fire.valveControls.sliders[self.valveStartIndex].SetValue(100)
+      self.transmitSettings(1)
+      self.valveStartIndex += 1
+    else:
+      self.startTimerStopped.set()
   def doConnect(self, event):
     self.ser = False
     baudRates = [9600, 14400, 19200, 28800, 38400, 57600, 115200]
@@ -412,6 +439,14 @@ class LedPatternTimerThread(Thread):
   def run(self):
     while not self.stopped.wait(4):
       tree.updateLedPattern()
+
+class StagedStartTimerThread(Thread):
+  def __init__(self, event):
+    Thread.__init__(self)
+    self.stopped = event
+  def run(self):
+    while not self.stopped.wait(2):
+      tree.nextStartStage()
 
 tree = Tree()
 app = wx.App(redirect=True,  filename="logfile.txt")
